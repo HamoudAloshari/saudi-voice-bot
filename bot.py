@@ -9,14 +9,12 @@ from pydub import AudioSegment
 import telebot
 from telebot import types
 
-# ========================================================
-# 1. خادم Render الداخلي لإبقاء البوت شغالاً 24/7 دون توقف
-# ========================================================
+# ----------------- خادم Render لإبقاء البوت شغالاً 24/7 -----------------
 class HealthCheck(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is Live and Running 24/7!")
+        self.wfile.write(b"Bot is Live 24/7!")
 
 def run_health_server():
     port = int(os.environ.get("PORT", 8080))
@@ -25,30 +23,23 @@ def run_health_server():
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
-# ========================================================
-# 2. البيانات الخاصة بك كاملة ومدمجة وجاهزة
-# ========================================================
+# ----------------- البيانات الافتراضية -----------------
 BOT_TOKEN = "8604985808:AAGqxFBZTx9RFs8XIqfg7dr_nlsYMl-vCcE"
-
-# بيانات Fish Audio
 FISH_VOICE_ID = "c3e5d81d807f4cbc9a0c2872a4dea9ea"
-DEFAULT_FISH_KEY = "sk-fish-s2GZTsNwOwqn5hM1T-f3RivFQEHvpegZpLO1xPY4Dwc"
-
-# بيانات ElevenLabs
 ELEVEN_VOICE_ID = "OoE8swS3hImZANNOodf6"
+
+DEFAULT_FISH_KEY = "sk-fish-s2GZTsNwOwqn5hM1T-f3RivFQEHvpegZpLO1xPY4Dwc"
 DEFAULT_ELEVEN_KEY = "sk_bda49de5150802a42f5a3c6ec27990fc92e6cf411a8525c9"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 
-# ========================================================
-# 3. قاعدة البيانات لحفظ التبديل والمفاتيح
-# ========================================================
-conn = sqlite3.connect("bot_storage_v3.db", check_same_thread=False)
+# ----------------- قاعدة البيانات -----------------
+conn = sqlite3.connect("bot_storage_v4.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
-    engine TEXT DEFAULT 'fish',
+    engine TEXT DEFAULT 'eleven',
     fish_key TEXT,
     eleven_key TEXT
 )
@@ -62,10 +53,10 @@ def get_user(user_id):
     row = cursor.fetchone()
     if row:
         return {"engine": row[0], "fish_key": row[1], "eleven_key": row[2]}
-    # تسجيل المستخدم لأول مرة بالبيانات الافتراضية
-    cursor.execute("INSERT OR REPLACE INTO users VALUES (?, 'fish', ?, ?)", (user_id, DEFAULT_FISH_KEY, DEFAULT_ELEVEN_KEY))
+    # جعل ElevenLabs الافتراضي
+    cursor.execute("INSERT OR REPLACE INTO users VALUES (?, 'eleven', ?, ?)", (user_id, DEFAULT_FISH_KEY, DEFAULT_ELEVEN_KEY))
     conn.commit()
-    return {"engine": "fish", "fish_key": DEFAULT_FISH_KEY, "eleven_key": DEFAULT_ELEVEN_KEY}
+    return {"engine": "eleven", "fish_key": DEFAULT_FISH_KEY, "eleven_key": DEFAULT_ELEVEN_KEY}
 
 def update_user_engine(user_id, engine):
     cursor.execute("UPDATE users SET engine = ? WHERE user_id = ?", (engine, user_id))
@@ -73,24 +64,20 @@ def update_user_engine(user_id, engine):
 
 def update_user_key(user_id, key_type, key_value):
     if key_type == "fish":
-        cursor.execute("UPDATE users SET fish_key = ? WHERE user_id = ?", (key_value, user_id))
+        cursor.execute("UPDATE users SET fish_key = ?, engine = 'fish' WHERE user_id = ?", (key_value, user_id))
     else:
-        cursor.execute("UPDATE users SET eleven_key = ? WHERE user_id = ?", (key_value, user_id))
+        cursor.execute("UPDATE users SET eleven_key = ?, engine = 'eleven' WHERE user_id = ?", (key_value, user_id))
     conn.commit()
 
-# أزرار لوحة التحكم
 def main_keyboard(engine):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    engine_name = "🐟 Fish Audio" if engine == "fish" else "⚡ ElevenLabs"
+    engine_name = "⚡ ElevenLabs" if engine == "eleven" else "🐟 Fish Audio"
     markup.row(f"🔄 المنصة الحالية: {engine_name}")
-    markup.row("🔑 مفتاح Fish Audio", "🔑 مفتاح ElevenLabs")
+    markup.row("🔑 مفتاح ElevenLabs", "🔑 مفتاح Fish Audio")
     markup.row("ℹ️ فحص حسابي")
     return markup
 
-# ========================================================
-# 4. دالة التقسيم الذكي للنصوص الطويلة
-# ========================================================
-def split_text(text, max_len=380):
+def split_text(text, max_len=350):
     sentences = re.split(r'([.،؟!\n]+)', text)
     chunks, current = [], ""
     for part in sentences:
@@ -104,22 +91,20 @@ def split_text(text, max_len=380):
         chunks.append(current.strip())
     return chunks
 
-# ========================================================
-# 5. معالجات الأوامر والرسائل
-# ========================================================
+# ----------------- أوامر البوت -----------------
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
     get_user(message.chat.id)
     markup = types.InlineKeyboardMarkup()
     markup.row(
-        types.InlineKeyboardButton("🐟 استخدام Fish Audio", callback_data="set_fish"),
-        types.InlineKeyboardButton("⚡ استخدام ElevenLabs", callback_data="set_eleven")
+        types.InlineKeyboardButton("⚡ استخدام ElevenLabs", callback_data="set_eleven"),
+        types.InlineKeyboardButton("🐟 استخدام Fish Audio", callback_data="set_fish")
     )
     bot.send_message(
         message.chat.id,
         "👋 **أهلاً بك في بوت الراوي المزدوج!**\n\n"
-        "تم ضبط جميع المفاتيح والأصوات السعودية بنجاح.\n\n"
-        "👇 **اختر المنصة التي تريد توليد الصوت من خلالها الآن:**",
+        "تم ضبط جميع المفاتيح بنجاح.\n"
+        "👇 اختر المنصة التي تفضلها للبدء:",
         reply_markup=markup
     )
 
@@ -128,82 +113,78 @@ def callback_set_engine(call):
     engine = "fish" if call.data == "set_fish" else "eleven"
     update_user_engine(call.message.chat.id, engine)
     name = "Fish Audio 🐟" if engine == "fish" else "ElevenLabs ⚡"
-    bot.answer_callback_query(call.id, f"تم التحويل إلى {name}")
+    bot.answer_callback_query(call.id, f"تم ضبط {name}")
     bot.send_message(
         call.message.chat.id,
-        f"✅ **أنت الآن تستخدم: {name}**\n\nأرسل أي نص مهما كان طوله وسأحوله بصوت الراوي المدمج فوراً.",
+        f"✅ **أنت الآن تعمل رسمياً على: {name}**\n\nأرسل أي نص الآن وسأحوله بصوت الراوي المدمج فوراً.",
         reply_markup=main_keyboard(engine)
     )
 
 @bot.message_handler(func=lambda msg: msg.text.startswith("🔄 المنصة الحالية") or msg.text in ["🔑 مفتاح Fish Audio", "🔑 مفتاح ElevenLabs", "ℹ️ فحص حسابي"])
 def handle_menu_actions(message):
     user_id = message.chat.id
+    user_states[user_id] = None  # إلغاء أي حالة انتظار سابقة فوراً
     user = get_user(user_id)
 
     if message.text.startswith("🔄 المنصة الحالية"):
-        new_engine = "eleven" if user["engine"] == "fish" else "fish"
+        new_engine = "fish" if user["engine"] == "eleven" else "eleven"
         update_user_engine(user_id, new_engine)
         name = "ElevenLabs ⚡" if new_engine == "eleven" else "Fish Audio 🐟"
         bot.send_message(user_id, f"✅ **تم التحويل فوراً إلى: {name}**", reply_markup=main_keyboard(new_engine))
 
-    elif message.text == "🔑 مفتاح Fish Audio":
-        user_states[user_id] = "WAITING_FISH_KEY"
-        bot.send_message(user_id, "📥 أرسل **مفتاح Fish Audio الجديد**:", reply_markup=types.ReplyKeyboardRemove())
-
     elif message.text == "🔑 مفتاح ElevenLabs":
         user_states[user_id] = "WAITING_ELEVEN_KEY"
-        bot.send_message(user_id, "📥 أرسل **مفتاح ElevenLabs الجديد**:", reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(user_id, "📥 أرسل مفتاح **ElevenLabs** وسأحفظه وأحوّل المنصة عليه فوراً:", reply_markup=types.ReplyKeyboardRemove())
+
+    elif message.text == "🔑 مفتاح Fish Audio":
+        user_states[user_id] = "WAITING_FISH_KEY"
+        bot.send_message(user_id, "📥 أرسل مفتاح **Fish Audio** وسأحفظه وأحوّل المنصة عليه فوراً:", reply_markup=types.ReplyKeyboardRemove())
 
     elif message.text == "ℹ️ فحص حسابي":
         f_key = user["fish_key"][:8] + "..." if user["fish_key"] else "غير مضاف"
         e_key = user["eleven_key"][:8] + "..." if user["eleven_key"] else "غير مضاف"
-        curr = "Fish Audio 🐟" if user["engine"] == "fish" else "ElevenLabs ⚡"
+        curr = "ElevenLabs ⚡" if user["engine"] == "eleven" else "Fish Audio 🐟"
         bot.send_message(
             user_id,
-            f"📋 **بياناتك المسجلة:**\n- المنصة النشطة: `{curr}`\n- مفتاح Fish: `{f_key}`\n- مفتاح Eleven: `{e_key}`\n- صوت Fish: `{FISH_VOICE_ID}`\n- صوت Eleven: `{ELEVEN_VOICE_ID}`"
+            f"📋 **بيانات حسابك الحالية:**\n- المنصة النشطة الآن: `{curr}`\n- مفتاح Eleven: `{e_key}`\n- مفتاح Fish: `{f_key}`"
         )
 
-# ========================================================
-# 6. توليد الصوت ومعالجة النصوص الطويلة
-# ========================================================
+# ----------------- توليد الصوت -----------------
 @bot.message_handler(content_types=['text'])
 def handle_text_generation(message):
     user_id = message.chat.id
+    text = message.text.strip()
     state = user_states.get(user_id)
 
-    # حفظ المفاتيح الجديدة في حال التحديث
-    if state == "WAITING_FISH_KEY":
-        update_user_key(user_id, "fish", message.text.strip())
+    # ذكاء اصطناعي للتعرف على المفتاح مباشرة حتى لو لم يضغط زراً
+    if text.startswith("sk_"):
+        update_user_key(user_id, "eleven", text)
         user_states[user_id] = None
-        bot.send_message(user_id, "✅ تم تحديث وحفظ مفتاح Fish Audio بنجاح!", reply_markup=main_keyboard(get_user(user_id)["engine"]))
+        bot.send_message(user_id, "✅ **تم التعرف على مفتاح ElevenLabs وحفظه، وتم تحويل البوت إلى ElevenLabs ⚡ تلقائياً!**\n\nأرسل القصة الآن وسينفذها فوراً.", reply_markup=main_keyboard("eleven"))
         return
 
-    if state == "WAITING_ELEVEN_KEY":
-        update_user_key(user_id, "eleven", message.text.strip())
+    if text.startswith("sk-fish-"):
+        update_user_key(user_id, "fish", text)
         user_states[user_id] = None
-        bot.send_message(user_id, "✅ تم تحديث وحفظ مفتاح ElevenLabs بنجاح!", reply_markup=main_keyboard(get_user(user_id)["engine"]))
+        bot.send_message(user_id, "✅ **تم التعرف على مفتاح Fish Audio وحفظه، وتم تحويل البوت إلى Fish Audio 🐟 تلقائياً!**\n\nأرسل القصة الآن وسينفذها فوراً.", reply_markup=main_keyboard("fish"))
         return
 
     user = get_user(user_id)
     engine = user["engine"]
-    api_key = user["fish_key"] if engine == "fish" else user["eleven_key"]
+    api_key = user["eleven_key"] if engine == "eleven" else user["fish_key"]
 
     if not api_key:
-        bot.send_message(user_id, f"⚠️ لا يوجد مفتاح محفوظ لمنصة {engine}!")
+        bot.send_message(user_id, f"⚠️ لا يوجد مفتاح محفوظ لمنصة {engine}! أدخل المفتاح أولاً.")
         return
 
-    chunks = split_text(message.text.strip())
-    engine_label = "Fish Audio" if engine == "fish" else "ElevenLabs"
-    status_msg = bot.send_message(user_id, f"⏳ جاري التوليد عبر **{engine_label}** ({len(chunks)} أجزاء)...")
+    chunks = split_text(text)
+    engine_label = "ElevenLabs ⚡" if engine == "eleven" else "Fish Audio 🐟"
+    status_msg = bot.send_message(user_id, f"⏳ جاري التوليد الحقيقي عبر **{engine_label}** ({len(chunks)} أجزاء)...")
 
     audio_segments, temp_files = [], []
 
     for i, chunk in enumerate(chunks):
-        if engine == "fish":
-            url = "https://api.fish.audio/v1/tts"
-            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-            payload = {"text": chunk, "reference_id": FISH_VOICE_ID, "format": "mp3"}
-        else:
+        if engine == "eleven":
             url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}"
             headers = {"xi-api-key": api_key, "Content-Type": "application/json"}
             payload = {
@@ -211,22 +192,26 @@ def handle_text_generation(message):
                 "model_id": "eleven_multilingual_v2",
                 "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
             }
+        else:
+            url = "https://api.fish.audio/v1/tts"
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            payload = {"text": chunk, "reference_id": FISH_VOICE_ID, "format": "mp3"}
 
         try:
-            res = requests.post(url, json=payload, headers=headers, timeout=60)
+            res = requests.post(url, json=payload, headers=headers, timeout=90)
         except Exception as e:
-            bot.send_message(user_id, f"❌ خطأ بالاتصال: {e}")
+            bot.send_message(user_id, f"❌ خطأ اتصال بالإنترنت: {e}")
             return
 
-        # فحص انتهاء الرصيد
-        if res.status_code in [401, 402, 429]:
+        if res.status_code != 200:
             bot.delete_message(user_id, status_msg.message_id)
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton(f"🔑 تحديث مفتاح {engine_label}", callback_data=f"change_{engine}"))
-            bot.send_message(user_id, f"⚠️ **انتهى رصيد حساب {engine_label}!**\nاضغط بالأسفل لإرسال مفتاح جديد:", reply_markup=markup)
-            return
-        elif res.status_code != 200:
-            bot.send_message(user_id, f"❌ خطأ من سيرفر {engine_label} ({res.status_code}): {res.text}")
+            err_text = res.text
+            if res.status_code == 401:
+                bot.send_message(user_id, f"⚠️ خطأ 401 في {engine_label}: المفتاح غير صحيح أو تم إلغاؤه.")
+            elif res.status_code in [402, 429]:
+                bot.send_message(user_id, f"⚠️ خطأ {res.status_code} في {engine_label}: تم استهلاك الحد المسموح أو تجاوز السرعة.")
+            else:
+                bot.send_message(user_id, f"❌ خطأ من سيرفر {engine_label} ({res.status_code}):\n`{err_text}`")
             return
 
         part_file = f"temp_{user_id}_{i}.mp3"
@@ -234,9 +219,8 @@ def handle_text_generation(message):
             f.write(res.content)
         temp_files.append(part_file)
         audio_segments.append(AudioSegment.from_file(part_file))
-        time.sleep(0.5)
+        time.sleep(1.2)
 
-    # الدمج والإرسال
     if audio_segments:
         final_audio = audio_segments[0]
         for seg in audio_segments[1:]:
@@ -252,18 +236,8 @@ def handle_text_generation(message):
         for f in temp_files:
             if os.path.exists(f): os.remove(f)
 
-@bot.callback_query_handler(func=lambda call: call.data in ["change_fish", "change_eleven"])
-def callback_change_keys(call):
-    key_type = "fish" if call.data == "change_fish" else "eleven"
-    user_states[call.message.chat.id] = "WAITING_FISH_KEY" if key_type == "fish" else "WAITING_ELEVEN_KEY"
-    name = "Fish Audio" if key_type == "fish" else "ElevenLabs"
-    bot.send_message(call.message.chat.id, f"📥 أرسل مفتاح الـ API الجديد الخاص بـ **{name}**:")
-
-# ========================================================
-# 7. نظام إعادة التشغيل التلقائي عند أي انقطاع
-# ========================================================
 while True:
     try:
-        bot.infinity_polling(timeout=20, long_polling_timeout=20)
+        bot.infinity_polling(timeout=25, long_polling_timeout=25)
     except Exception as e:
         time.sleep(5)
